@@ -1,0 +1,138 @@
+name: CI/CD - Heart Disease MLOps
+
+# Runs on every push / pull request, and can be started by hand.
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+env:
+  PYTHON_VERSION: "3.12"
+  PYTHONPATH: src:.
+  IMAGE_NAME: heart-disease-api
+
+jobs:
+  # 1) Code style. The pipeline stops here if lint fails.
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - run: pip install flake8==7.4.1
+      - name: Lint with flake8
+        run: flake8 src api tests --statistics --tee --output-file=flake8-report.txt
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: lint-report
+          path: flake8-report.txt
+
+  # 2) Unit tests with coverage. Fails the run if any test fails.
+  test:
+    needs: lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+      - run: pip install -r requirements.txt
+      - name: Run pytest
+        run: |
+          python -m pytest -v --junitxml=junit.xml \
+                 --cov=src/heart --cov=api --cov-report=xml --cov-report=term
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: test-reports
+          path: |
+            junit.xml
+            coverage.xml
+
+  # 3) Download data, run EDA, train + track models, check the model is good enough.
+  train:
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+      - run: pip install -r requirements.txt
+      - name: Download and clean data
+        run: python -m heart.data
+      - name: EDA charts
+        run: python -m heart.eda
+      - name: Train and track with MLflow
+        run: python -m heart.train 2>&1 | tee training.log
+        env:
+          MODEL_VERSION: "1.0.${{ github.run_number }}"
+      - name: Quality gate (ROC-AUC must be >= 0.80)
+        run: |
+          python - <<'EOF'
+          import json, sys
+          m = json.load(open("models/model_meta.json"))["metrics"]
+          print("test ROC-AUC:", m["test_roc_auc"], "| CV ROC-AUC:", m["cv_roc_auc_mean"])
+          sys.exit(0 if m["test_roc_auc"] >= 0.80 else "Model below quality bar")
+          EOF
+      - name: Upload model + reports
+        uses: actions/upload-artifact@v4
+        with:
+          name: model-and-reports
+          path: |
+            models/
+            reports/
+            training.log
+            data/processed/
+      - name: Upload MLflow tracking data
+        uses: actions/upload-artifact@v4
+        with:
+          name: mlflow-runs
+          path: |
+            mlflow.db
+            mlruns/
+
+  # 4) Build the Docker image with the new model and test it really serves.
+  docker:
+    needs: train
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: model-and-reports
+      - name: Build image
+        run: docker build -t $IMAGE_NAME:${{ github.sha }} -t $IMAGE_NAME:latest .
+      - name: Smoke test the container
+        run: |
+          docker run -d --name api -p 8000:8000 $IMAGE_NAME:latest
+          for i in $(seq 1 20); do curl -fs localhost:8000/health && break; sleep 2; done
+          curl -fs localhost:8000/health
+          curl -fs -X POST localhost:8000/predict \
+            -H "Content-Type: application/json" -d @scripts/sample_request.json | tee predict.json
+          python -c "import json; r=json.load(open('predict.json')); assert r['prediction'] in (0,1) and 0.5<=r['confidence']<=1"
+          docker logs api > container.log 2>&1
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: container-smoke-test
+          path: |
+            predict.json
+            container.log
+      - name: Push image to GitHub Container Registry (main branch only)
+        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+        run: |
+          echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
+          IMAGE=ghcr.io/$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')/$IMAGE_NAME
+          docker tag $IMAGE_NAME:latest $IMAGE:latest
+          docker tag $IMAGE_NAME:latest $IMAGE:${{ github.sha }}
+          docker push $IMAGE:latest
+          docker push $IMAGE:${{ github.sha }}

@@ -1,0 +1,15 @@
+# LoadBalancer: on Docker Desktop it is published on localhost:80;
+# on Minikube run `minikube tunnel`; on GKE/EKS/AKS you get a public IP.
+apiVersion: v1
+kind: Service
+metadata:
+  name: heart-api
+  namespace: heart-disease
+  labels: {app: heart-api}
+spec:
+  type: LoadBalancer
+  selector: {app: heart-api}
+  ports:
+    - name: http
+      port: 80
+      targetPort: http

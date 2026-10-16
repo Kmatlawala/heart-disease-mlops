@@ -1,0 +1,19 @@
+# Optional: needs an ingress controller (minikube addons enable ingress,
+# or ingress-nginx on Docker Desktop). Add "127.0.0.1 heart.local" to hosts file.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: heart-api
+  namespace: heart-disease
+spec:
+  ingressClassName: nginx
+  rules:
+    - host: heart.local
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: heart-api
+                port: {number: 80}
