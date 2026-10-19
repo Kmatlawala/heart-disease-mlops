@@ -42,4 +42,5 @@ spec:
             periodSeconds: 20
           securityContext:
             runAsNonRoot: true
+            runAsUser: 1000          # numeric id of "appuser" in the image (lets K8s verify non-root)
             allowPrivilegeEscalation: false
