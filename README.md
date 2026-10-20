@@ -7,6 +7,23 @@ A classifier that predicts heart disease risk from 13 patient measurements (UCI 
 
 ![Architecture](reports/figures/architecture.png)
 
+## Deliverables (where to find each item)
+
+| Deliverable | Location |
+|---|---|
+| Code, Dockerfile, requirements | `src/`, `api/`, `Dockerfile`, `requirements.txt`, `requirements-serve.txt` |
+| Cleaned dataset + download script | `data/processed/heart_clean.csv`, `src/heart/data.py` (`python -m heart.data`) |
+| Notebooks (EDA, training, inference) | `notebooks/01_eda.ipynb`, `02_training.ipynb`, `03_inference.ipynb` |
+| Unit tests | `tests/` (21 pytest tests) |
+| CI/CD workflow | `.github/workflows/ci.yml` |
+| Deployment manifests | `k8s/` (namespace, deployment, LoadBalancer service, ingress, HPA, monitoring) |
+| Monitoring config | `monitoring/` (Prometheus + Grafana dashboard), `docker-compose.yml` |
+| Screenshots | `screenshots/` |
+| Final report | [`report/MLOps_Assignment1_Report.pdf`](report/MLOps_Assignment1_Report.pdf) (also `.docx`) |
+| Pipeline video | [`report/MLOps_Assignment1_Pipeline_Final.mp4`](report/MLOps_Assignment1_Pipeline_Final.mp4) (5 min, recorded on the BITS Prayogshala lab VM + GitHub Actions) |
+| API access | Local only: see sections 4 (Docker) and 5 (Kubernetes) below |
+
+
 ## Results (held-out test set, 61 patients)
 
 | Model | CV ROC-AUC (5-fold) | Test ROC-AUC | Test accuracy | Test recall |
